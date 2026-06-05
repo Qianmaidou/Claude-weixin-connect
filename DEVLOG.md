@@ -424,3 +424,68 @@
 - 修改：`src/claude.ts`（新增 `ClaudeMessage` 类型导出）
 
 **提交：** `feat: slash commands and inbound image support (Claude Vision)`
+
+---
+
+### Step 16-20: README 文档 + 配置示例 + 最终打磨 ✅ (2026-06-05)
+
+**做了什么：**
+
+1. **`README.md`** — 完整项目文档
+   - 功能列表、快速开始、安装步骤
+   - CLI 命令参考、Slash 命令参考
+   - 配置参考（完整 JSON schema + 字段说明）
+   - 目录结构图、架构图（ASCII）
+   - 技术栈说明、开发指南
+
+2. **`config.example.json`** — 示例配置文件
+   - 所有可选字段 + 默认值
+   - `${CLAUDE_API_KEY}` 环境变量占位
+
+3. **`system-prompt.example.md`** — 示例 System Prompt
+   - 中英双语指导
+   - 礼貌、简洁、能力边界
+
+**验证：** 文档审阅完成
+
+**文件变更：**
+- 修改：`README.md`（重写为完整文档）
+- 新建：`config.example.json`
+- 新建：`system-prompt.example.md`
+
+**提交：** `docs: complete README with setup guide, config reference, and examples`
+
+---
+
+## 项目总结
+
+### 当前状态
+
+Claude Weixin Connect 已实现核心微信 Bot 功能：
+- ✅ 微信 iLink Bot 协议完整实现（6 个 API 端点 + CDN 媒体）
+- ✅ 扫码登录 + 多账号管理
+- ✅ Claude AI 流式回复 + Typing Indicator
+- ✅ 对话上下文管理（滑动窗口 + Token 限制）
+- ✅ Slash 命令（/help, /reset, /status, /model）
+- ✅ Claude Vision 图片识别
+- ✅ 23 个单元测试通过
+- ✅ 完整项目文档
+
+### 文件统计
+
+| 类型 | 文件数 | 行数（约） |
+|------|--------|-----------|
+| 协议层 (weixin/) | 17 | ~2,500 |
+| 核心逻辑 (config, storage, claude, bot) | 4 | ~700 |
+| CLI (index) | 1 | ~160 |
+| 测试 | 3 | ~340 |
+| 配置/文档 | 7 | ~250 |
+| **总计** | **32** | **~4,000** |
+
+### 技术亮点
+
+1. **无框架依赖：** 完整去除了 OpenClaw 框架耦合，仅依赖 `@anthropic-ai/sdk`
+2. **协议完整性：** 从 openclaw-weixin 提取了完整的微信 iLink Bot 协议实现
+3. **流式体验：** 200 字符/3s 合并块 + Markdown 实时过滤 + Typing Indicator
+4. **容错设计：** 会话过期自动暂停、连续失败退避、网络中断重连
+5. **可扩展：** 模块化架构，协议层与 AI 层完全分离
