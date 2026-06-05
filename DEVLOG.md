@@ -232,3 +232,38 @@
 - 新建：`src/weixin/messaging/send-media.ts`
 
 **提交：** `chore: extract CDN media upload and download`
+
+---
+
+### Step 7: 实现配置系统 ✅ (2026-06-05)
+
+**做了什么：**
+- 创建 `src/config.ts` — 自己的配置系统（替代 OpenClaw config）
+
+1. **Zod Schema 定义：**
+   - `ClaudeConfigSchema` — apiKey, model, maxTokens, temperature
+   - `WeixinConfigSchema` — dataDir, botAgent, ilinkAppId, 默认 API/CDN URL
+   - `ConversationConfigSchema` — maxHistoryMessages, maxContextTokens
+   - `BridgeConfigSchema` — 组合以上 + allowedUsers + systemPromptFile
+
+2. **环境变量替换：**
+   - `resolveEnvVars()` — `${CLAUDE_API_KEY}` → 实际值
+   - 支持深层嵌套对象的递归替换
+
+3. **配置加载：**
+   - `loadConfig(path?)` — 从 JSON 文件加载 + Zod 校验
+   - 校验失败时打印警告，回退到默认值
+   - `getConfig()` — 获取已加载的配置（自动懒加载默认值）
+   - 配置路径：`${BRIDGE_DATA_DIR}/config.json` 或 `./data/config.json`
+
+4. **单元测试：**
+   - `config.test.ts` — 5 个测试用例
+   - 覆盖：最小配置/默认值填充/字段校验/完整配置/DEFAULT_CONFIG
+
+**验证：** `npx tsc --noEmit` + `npx vitest run` 5 tests passed
+
+**文件变更：**
+- 新建：`src/config.ts`
+- 新建：`src/config.test.ts`
+
+**提交：** `feat: config system with Zod schema and env substitution`
