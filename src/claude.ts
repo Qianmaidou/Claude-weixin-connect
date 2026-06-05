@@ -9,11 +9,17 @@ import type { ConversationEntry } from "./storage.js";
 // Types
 // ---------------------------------------------------------------------------
 
+/** Claude-compatible message (text or text+image). */
+export interface ClaudeMessage {
+  role: "user" | "assistant";
+  content: string | Anthropic.Messages.ContentBlockParam[];
+}
+
 export interface ClaudeStreamOpts {
   /** System prompt (placed in the system parameter, not as a user message). */
   systemPrompt: string;
-  /** Conversation history (user/assistant messages). */
-  messages: ConversationEntry[];
+  /** Conversation history with optional image content blocks. */
+  messages: ClaudeMessage[];
   /** Override the model from config (e.g. per-user setting). */
   model?: string;
 }

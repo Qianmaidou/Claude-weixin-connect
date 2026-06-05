@@ -13,7 +13,12 @@ import { pauseSession, assertSessionActive, SESSION_EXPIRED_ERRCODE } from "./we
 import { sendMessageWeixin, StreamingMarkdownFilter } from "./weixin/messaging/send.js";
 import { logger } from "./weixin/util/logger.js";
 import { MessageItemType, MessageState, TypingStatus } from "./weixin/api/types.js";
+import type { MessageItem } from "./weixin/api/types.js";
+import { downloadAndDecryptBuffer, downloadPlainCdnBuffer } from "./weixin/cdn/pic-decrypt.js";
+import { getTempDir } from "./storage.js";
 import { streamClaudeResponse } from "./claude.js";
+import type { ClaudeMessage } from "./claude.js";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getConfig } from "./config.js";
 import {
   loadSyncBuf,
@@ -51,6 +56,58 @@ function extractText(msg: { item_list?: { type?: number; text_item?: { text?: st
     .map((item) => item.text_item?.text ?? "")
     .filter(Boolean);
   return texts.join("\n");
+}
+
+/**
+ * Download and decrypt an image from a WeChat message item.
+ * Returns base64 data URI string or null on failure.
+ */
+async function downloadInboundImage(
+  item: MessageItem,
+  cdnBaseUrl: string,
+): Promise<{ base64: string; mediaType: string } | null> {
+  const img = item.image_item;
+  if (!img?.media) return null;
+
+  try {
+    const aesKeyBase64 = img.aeskey
+      ? Buffer.from(img.aeskey, "hex").toString("base64")
+      : img.media.aes_key;
+
+    const buf = aesKeyBase64
+      ? await downloadAndDecryptBuffer(
+          img.media.encrypt_query_param ?? "",
+          aesKeyBase64,
+          cdnBaseUrl,
+          "bot image",
+          img.media.full_url,
+        )
+      : await downloadPlainCdnBuffer(
+          img.media.encrypt_query_param ?? "",
+          cdnBaseUrl,
+          "bot image-plain",
+          img.media.full_url,
+        );
+
+    // Save to temp for potential future use
+    const tmpDir = getTempDir();
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpFile = path.join(tmpDir, `img-${Date.now()}.jpg`);
+    fs.writeFileSync(tmpFile, buf);
+
+    const base64 = buf.toString("base64");
+    const mediaType = "image/jpeg";
+    logger.info(`${LOG_PREFIX} downloaded image: ${buf.length} bytes → ${tmpFile}`);
+    return { base64, mediaType };
+  } catch (err) {
+    logger.error(`${LOG_PREFIX} image download failed: ${String(err)}`);
+    return null;
+  }
+}
+
+/** Check if a message item list contains any images. */
+function hasImageItems(items?: { type?: number }[]): boolean {
+  return items?.some((item) => item.type === MessageItemType.IMAGE) ?? false;
 }
 
 /** Load system prompt from file or return default. */
@@ -160,8 +217,9 @@ async function streamReply(
   toUserId: string,
   contextToken: string,
   systemPrompt: string,
-  conversation: ConversationEntry[],
+  conversation: ClaudeMessage[],
   configManager: WeixinConfigManager,
+  model?: string,
 ): Promise<string> {
   const typing = startTypingIndicator(account, toUserId, configManager);
   const filter = new StreamingMarkdownFilter();
@@ -216,6 +274,7 @@ async function streamReply(
     const stream = streamClaudeResponse({
       systemPrompt,
       messages: conversation,
+      model,
     });
 
     for await (const delta of stream) {
@@ -256,6 +315,94 @@ async function streamReply(
 }
 
 // ---------------------------------------------------------------------------
+// Slash commands
+// ---------------------------------------------------------------------------
+
+/** Per-user model override (in-memory, resets on restart). */
+const userModelPrefs = new Map<string, string>();
+
+async function sendQuickReply(
+  account: StoredAccount,
+  toUserId: string,
+  contextToken: string,
+  text: string,
+): Promise<void> {
+  try {
+    await sendMessageWeixin({
+      to: toUserId,
+      text,
+      opts: {
+        baseUrl: account.baseUrl,
+        token: account.token,
+        contextToken,
+      },
+    });
+  } catch (err) {
+    logger.error(`${LOG_PREFIX} quick reply failed: ${String(err)}`);
+  }
+}
+
+/**
+ * Handle built-in slash commands. Returns true if the command was handled
+ * (caller should skip AI pipeline), false otherwise.
+ */
+async function handleSlashCommand(
+  account: StoredAccount,
+  userId: string,
+  contextToken: string,
+  text: string,
+): Promise<boolean> {
+  const trimmed = text.trim();
+
+  if (trimmed === "/reset") {
+    saveConversation(account.accountId, userId, []);
+    logger.info(`${LOG_PREFIX} /reset: cleared conversation for ${userId}`);
+    await sendQuickReply(account, userId, contextToken, "🔄 对话已重置。");
+    return true;
+  }
+
+  if (trimmed === "/status") {
+    const conv = loadConversation(account.accountId, userId);
+    const tokens = estimateTokens(conv);
+    const cfg = getConfig();
+    const model = userModelPrefs.get(userId) ?? cfg.claude.model;
+    const statusMsg = [
+      `📊 当前状态`,
+      `模型: ${model}`,
+      `对话条数: ${conv.length}`,
+      `估算 tokens: ${tokens}`,
+      `上下文限制: ${cfg.conversation.maxContextTokens} tokens / ${cfg.conversation.maxHistoryMessages} 条`,
+    ].join("\n");
+    await sendQuickReply(account, userId, contextToken, statusMsg);
+    return true;
+  }
+
+  if (trimmed.startsWith("/model ")) {
+    const newModel = trimmed.slice(7).trim();
+    if (!newModel) {
+      await sendQuickReply(account, userId, contextToken, "用法: /model <模型名>");
+      return true;
+    }
+    userModelPrefs.set(userId, newModel);
+    logger.info(`${LOG_PREFIX} /model: user ${userId} switched to ${newModel}`);
+    await sendQuickReply(account, userId, contextToken, `✅ 模型已切换为: ${newModel}`);
+    return true;
+  }
+
+  if (trimmed === "/help") {
+    await sendQuickReply(
+      account,
+      userId,
+      contextToken,
+      `可用命令:\n/help - 显示帮助\n/reset - 重置对话\n/status - 查看状态\n/model <名称> - 切换模型`,
+    );
+    return true;
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Message processing
 // ---------------------------------------------------------------------------
 
@@ -291,22 +438,62 @@ async function processMessage(
   if (msg.context_token) {
     setContextToken(account.accountId, fromUserId, msg.context_token);
   }
+  const contextToken = getContextToken(account.accountId, fromUserId) ?? msg.context_token ?? "";
+
+  // --- Slash command handling ---
+  const handled = await handleSlashCommand(account, fromUserId, contextToken, text);
+  if (handled) return;
 
   // Load conversation history
   let conversation = loadConversation(account.accountId, fromUserId);
 
-  // Append user message
+  // Download inbound images if present
+  const imageItems = msg.item_list?.filter((item) => item.type === MessageItemType.IMAGE) ?? [];
+  const images: { base64: string; mediaType: string }[] = [];
+  for (const item of imageItems) {
+    const img = await downloadInboundImage(item, account.cdnBaseUrl);
+    if (img) images.push(img);
+  }
+
+  // Build Claude messages: convert ConversationEntry[] → ClaudeMessage[]
+  const claudeMessages: ClaudeMessage[] = conversation.map((entry) => ({
+    role: entry.role,
+    content: entry.content,
+  }));
+
+  // Append new user message (may include images as content blocks)
+  if (images.length > 0) {
+    const blocks: Anthropic.ContentBlockParam[] = [
+      { type: "text", text: text || "请描述这张图片" },
+      ...images.map((img) => ({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: img.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+          data: img.base64,
+        },
+      })),
+    ];
+    claudeMessages.push({ role: "user", content: blocks });
+  } else {
+    claudeMessages.push({ role: "user", content: text });
+  }
+
+  // Save user message to persistent history (text only + note about images)
+  let historyText = text;
+  if (images.length > 0) {
+    historyText = text
+      ? `${text}\n[包含 ${images.length} 张图片]`
+      : `[${images.length} 张图片]`;
+  }
   conversation.push({
     role: "user",
-    content: text,
+    content: historyText,
     timestamp: Date.now(),
   });
 
   // Load system prompt
   const systemPrompt = loadSystemPromptSync();
-
-  // Get context token for sending
-  const contextToken = getContextToken(account.accountId, fromUserId) ?? msg.context_token ?? "";
 
   // Stream Claude response
   let replyText = "";
@@ -316,8 +503,9 @@ async function processMessage(
       fromUserId,
       contextToken,
       systemPrompt,
-      conversation,
+      claudeMessages,
       configManager,
+      userModelPrefs.get(fromUserId),
     );
   } catch (err) {
     logger.error(`${LOG_PREFIX} Claude stream failed for ${fromUserId}: ${String(err)}`);

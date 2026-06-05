@@ -391,3 +391,36 @@
 - 新建：`src/bot.ts`
 
 **提交：** `feat: Claude API wrapper, CLI, and bot main loop (MVP)`
+
+---
+
+### Step 13-15: Slash 命令 + 入站图片支持 ✅ (2026-06-05)
+
+**做了什么：**
+
+1. **Slash 命令系统（`handleSlashCommand`）：**
+   - `/help` — 显示可用命令
+   - `/reset` — 重置对话历史
+   - `/status` — 显示模型、对话条数、token 估算
+   - `/model <名称>` — 切换 Claude 模型（内存中，重启重置）
+   - `sendQuickReply()` — 命令响应快速回复辅助函数
+
+2. **入站图片支持（Claude Vision）：**
+   - `downloadInboundImage()` — 从微信 CDN 下载并解密图片
+     - 支持 `image_item.aeskey`（hex）和 `media.aes_key`（base64）两种 key 格式
+     - 无 AES key 时回退到明文下载
+   - 图片转 base64 → 构建 `ContentBlockParam[]` → Claude Vision API
+   - 对话历史中保存 `[包含 N 张图片]` 标记（图片不持久化）
+
+3. **类型扩展：**
+   - `ClaudeMessage` 类型（→ `claude.ts`）— 支持 `string | ContentBlockParam[]`
+   - `streamReply()` 接受 `ClaudeMessage[]` 而非 `ConversationEntry[]`
+   - 用户模型偏好 Map（`userModelPrefs`）集成到流式调用
+
+**验证：** `npx tsc --noEmit` + `npx vitest run` 23 tests passed
+
+**文件变更：**
+- 修改：`src/bot.ts`（+120 行：slash commands + image download + type changes）
+- 修改：`src/claude.ts`（新增 `ClaudeMessage` 类型导出）
+
+**提交：** `feat: slash commands and inbound image support (Claude Vision)`
