@@ -312,3 +312,35 @@
 - 新建：`src/storage.test.ts`
 
 **提交：** `feat: storage layer for accounts, sync buffers, and conversations`
+
+---
+
+### Step 9: 适配扫码登录 ✅ (2026-06-05)
+
+**做了什么：**
+- 从 openclaw-weixin 提取并适配 `login-qr.ts` → `src/weixin/auth/login-qr.ts`
+
+1. **扫码登录流程（完整保留）：**
+   - `startWeixinLoginWithQr()` — 发起扫码登录，获取 QR code
+   - `waitForWeixinLogin()` — 轮询扫码状态直到确认/过期/超时
+   - `displayQRCode()` — 终端显示二维码 + 备用链接
+   - 支持验证码（`need_verifycode`）、IDC 重定向（`scaned_but_redirect`）
+   - QR 码过期自动刷新（最多 3 次）
+   - 验证错误封锁后自动刷新重试
+
+2. **关键改动：**
+   - `getLocalBotTokenList()` — 用我们的 `listAccountIds()` + `loadAccount()` 替换 OpenClaw 的账户管理
+   - `confirmed` 状态处理 — 自动调用 `saveAccount()` 保存凭证
+   - 文案修改：`OpenClaw` → `Claude Weixin Connect`
+   - Import 路径适配到我们的模块结构
+
+3. **类型声明：**
+   - 创建 `src/vendor.d.ts` — qrcode-terminal 和 silk-wasm 的类型声明
+
+**验证：** `npx tsc --noEmit` 通过
+
+**文件变更：**
+- 新建：`src/weixin/auth/login-qr.ts`
+- 新建：`src/vendor.d.ts`
+
+**提交：** `feat: adapt QR code login flow to our storage layer`
