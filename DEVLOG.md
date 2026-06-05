@@ -101,3 +101,38 @@
 - 新建：`src/weixin/cdn/aes-ecb.test.ts`
 
 **提交：** `chore: extract AES-128-ECB encryption for CDN media`
+
+---
+
+### Step 4: 提取 HTTP API 层 ✅ (2026-06-05)
+
+**做了什么：**
+- 从 openclaw-weixin 提取并适配 3 个文件：
+
+1. **`src/weixin/api/api.ts`** — 核心 HTTP API 层（~400 行）
+   - 6 个微信 API 端点：`getUpdates`, `sendMessage`, `getUploadUrl`, `getConfig`, `sendTyping`, `notifyStart`, `notifyStop`
+   - 2 个底层 fetch 封装：`apiPostFetch`, `apiGetFetch`
+   - **改动：**
+     - 硬编码 `CHANNEL_VERSION = "1.0.0"`、`ILINK_APP_ID = "bot"`（不再读取 package.json）
+     - 移除 `loadConfigBotAgent()` / `loadConfigRouteTag()` 调用（OpenClaw 依赖）
+     - 改为 `setApiBotAgent()` / `setApiRouteTag()` setter 函数
+     - `buildBaseInfo()` 使用模块级存储的 bot_agent 值
+     - 所有 import 路径改为我们的 `../util/` 和 `./types.js`
+
+2. **`src/weixin/api/config-cache.ts`** — typing ticket 缓存管理器
+   - 24 小时 TTL，失败指数退避重试（最多 1 小时）
+   - **无改动**
+
+3. **`src/weixin/api/session-guard.ts`** — 会话过期守卫
+   - errcode -14 时暂停 1 小时
+   - `pauseSession`, `isSessionPaused`, `assertSessionActive`
+   - **无改动**
+
+**验证：** `npx tsc --noEmit` 通过
+
+**文件变更：**
+- 新建：`src/weixin/api/api.ts`
+- 新建：`src/weixin/api/config-cache.ts`
+- 新建：`src/weixin/api/session-guard.ts`
+
+**提交：** `chore: extract WeChat iLink HTTP API layer`
