@@ -267,3 +267,48 @@
 - 新建：`src/config.test.ts`
 
 **提交：** `feat: config system with Zod schema and env substitution`
+
+---
+
+### Step 8: 实现存储层 ✅ (2026-06-05)
+
+**做了什么：**
+- 创建 `src/storage.ts` — 自己的持久化层（替代 OpenClaw 的 account store + sync buffer + context token + session）
+
+1. **账户管理：**
+   - `saveAccount()`, `loadAccount()`, `listAccountIds()`, `removeAccount()`
+   - `normalizeAccountId()` — `@` → `-` 替换（内联自 OpenClaw）
+   - 账户索引文件 `accounts.json` + 独立凭证文件
+
+2. **Sync Buffer：**
+   - `loadSyncBuf()`, `saveSyncBuf()` — get_updates_buf 游标持久化
+
+3. **Context Token：**
+   - `getContextToken()`, `setContextToken()` — userId → contextToken 映射
+
+4. **对话历史：**
+   - `loadConversation()`, `saveConversation()` — 每用户独立 JSON 文件
+   - `pruneConversation()` — 滑动窗口裁剪
+   - `estimateTokens()` — 粗略 token 估算（4 字符 ≈ 1 token）
+
+5. **临时文件目录：**
+   - `getTempDir()` — `{dataDir}/tmp/`
+
+**目录结构：**
+```
+{dataDir}/
+  accounts.json
+  accounts/{accountId}.json
+  accounts/{accountId}.sync.json
+  accounts/{accountId}.context-tokens.json
+  conversations/{accountId}/{userId}.json
+  tmp/
+```
+
+**验证：** `npx tsc --noEmit` + `npx vitest run` 15 tests passed
+
+**文件变更：**
+- 新建：`src/storage.ts`
+- 新建：`src/storage.test.ts`
+
+**提交：** `feat: storage layer for accounts, sync buffers, and conversations`
