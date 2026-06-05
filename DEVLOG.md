@@ -176,3 +176,59 @@
 - 修改：`src/weixin/api/types.ts`（新增 UploadedFileInfo）
 
 **提交：** `chore: extract message sending and markdown filter`
+
+---
+
+### Step 6: 提取 CDN 媒体上传/下载 ✅ (2026-06-05)
+
+**做了什么：**
+- 从 openclaw-weixin 提取以下 CDN 和媒体文件：
+
+1. **`src/weixin/cdn/cdn-url.ts`** — CDN URL 构建
+   - `buildCdnDownloadUrl()` / `buildCdnUploadUrl()`
+   - 支持 `ENABLE_CDN_URL_FALLBACK` 模式
+   - **无改动，原样复制**
+
+2. **`src/weixin/cdn/cdn-upload.ts`** — CDN 上传（AES 加密 + 重试）
+   - `uploadBufferToCdn()` — 加密 → POST → 获取 x-encrypted-param
+   - 最多 3 次重试，4xx 立即中止
+   - **无改动，原样复制**
+
+3. **`src/weixin/cdn/pic-decrypt.ts`** — CDN 下载 + AES 解密
+   - `downloadAndDecryptBuffer()` — 下载密文 → AES 解密
+   - `downloadPlainCdnBuffer()` — 下载明文
+   - 支持两种 AES key 编码格式（raw base64 / hex-in-base64）
+   - **无改动，原样复制**
+
+4. **`src/weixin/cdn/upload.ts`** — 上传流水线
+   - `uploadFileToWeixin()`, `uploadVideoToWeixin()`, `uploadFileAttachmentToWeixin()`
+   - `downloadRemoteImageToTemp()` — 远程图片下载
+   - **改动：** `UploadedFileInfo` 从 `types.ts` 导入（消除重复定义）
+
+5. **`src/weixin/media/media-download.ts`** — 入站媒体下载解密
+   - `downloadMediaFromItem()` — 支持 IMAGE/VOICE/FILE/VIDEO 四种类型
+   - SILK 语音自动转 WAV
+   - **改动：** 定义 `SaveMediaFn` 和 `WeixinInboundMediaOpts` 类型（替代 OpenClaw 类型）
+   - **改动：** 内联 `MessageItemType_T` 类型推断
+
+6. **`src/weixin/media/silk-transcode.ts`** — SILK → WAV 转码
+   - 调用 `silk-wasm` 动态 import
+   - 失败时返回 null（优雅降级）
+   - **无改动，原样复制**
+
+7. **`src/weixin/messaging/send-media.ts`** — 媒体文件发送路由
+   - `sendWeixinMediaFile()` — 按 MIME 类型路由到对应上传+发送函数
+   - **无改动（仅 import 路径更新）**
+
+**验证：** `npx tsc --noEmit` 通过
+
+**文件变更：**
+- 新建：`src/weixin/cdn/cdn-url.ts`
+- 新建：`src/weixin/cdn/cdn-upload.ts`
+- 新建：`src/weixin/cdn/pic-decrypt.ts`
+- 新建：`src/weixin/cdn/upload.ts`
+- 新建：`src/weixin/media/media-download.ts`
+- 新建：`src/weixin/media/silk-transcode.ts`
+- 新建：`src/weixin/messaging/send-media.ts`
+
+**提交：** `chore: extract CDN media upload and download`
