@@ -136,3 +136,43 @@
 - 新建：`src/weixin/api/session-guard.ts`
 
 **提交：** `chore: extract WeChat iLink HTTP API layer`
+
+---
+
+### Step 5: 提取消息发送 + Markdown 过滤 ✅ (2026-06-05)
+
+**做了什么：**
+- 从 openclaw-weixin 提取以下文件：
+
+1. **`src/weixin/messaging/send.ts`** — 出站消息发送
+   - `sendMessageWeixin()` — 发送纯文本消息
+   - `sendImageMessageWeixin()` — 发送图片消息（CDN 引用）
+   - `sendVideoMessageWeixin()` — 发送视频消息
+   - `sendFileMessageWeixin()` — 发送文件附件
+   - `buildSendMessageReq()` / `buildTextMessageReq()` — 请求构建
+   - **改动：** 移除 `ReplyPayload`（OpenClaw 类型）→ 本地定义
+   - **改动：** `UploadedFileInfo` 改为从 `types.ts` 导入
+   - **改动：** clientId 前缀改为 `claude-weixin`
+
+2. **`src/weixin/messaging/markdown-filter.ts`** — 流式 Markdown 过滤器
+   - 字符级状态机，实时过滤不支持的 Markdown 语法
+   - 支持代码块、表格、分割线、粗体/斜体
+   - 过滤 CJK 斜体、H5/H6、图片语法
+   - **无改动，原样复制**
+
+3. **`src/weixin/media/mime.ts`** — MIME 类型工具
+   - 扩展名 ↔ MIME 类型映射
+   - `getMimeFromFilename()`, `getExtensionFromMime()`, `getExtensionFromContentTypeOrUrl()`
+   - **无改动，原样复制**
+
+4. **`src/weixin/api/types.ts`** — 新增 `UploadedFileInfo` 类型（CDN 上传结果，多模块共享）
+
+**验证：** `npx tsc --noEmit` 通过
+
+**文件变更：**
+- 新建：`src/weixin/messaging/send.ts`
+- 新建：`src/weixin/messaging/markdown-filter.ts`
+- 新建：`src/weixin/media/mime.ts`
+- 修改：`src/weixin/api/types.ts`（新增 UploadedFileInfo）
+
+**提交：** `chore: extract message sending and markdown filter`

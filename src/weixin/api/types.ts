@@ -260,3 +260,19 @@ export interface NotifyStartResp {
   ret?: number;
   errmsg?: string;
 }
+
+// ---------------------------------------------------------------------------
+// CDN upload result (shared across messaging and CDN modules)
+// ---------------------------------------------------------------------------
+
+export type UploadedFileInfo = {
+  filekey: string;
+  /** 由 upload_param 上传后 CDN 返回的下载加密参数; fill into ImageItem.media.encrypt_query_param */
+  downloadEncryptedQueryParam: string;
+  /** AES-128-ECB key, hex-encoded; convert to base64 for CDNMedia.aes_key */
+  aeskey: string;
+  /** Plaintext file size in bytes */
+  fileSize: number;
+  /** Ciphertext file size in bytes (AES-128-ECB with PKCS7 padding) */
+  fileSizeCiphertext: number;
+};
