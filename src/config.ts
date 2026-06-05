@@ -3,6 +3,36 @@ import path from "node:path";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
+// .env file loading
+// ---------------------------------------------------------------------------
+
+function loadEnvFile(): void {
+  // Try .env in cwd
+  const candidates = [path.resolve(".env"), path.resolve(process.cwd(), ".env")];
+  for (const fp of candidates) {
+    try {
+      if (fs.existsSync(fp)) {
+        const content = fs.readFileSync(fp, "utf-8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx === -1) continue;
+          const key = trimmed.slice(0, eqIdx).trim();
+          const value = trimmed.slice(eqIdx + 1).trim();
+          if (key && !process.env[key]) {
+            process.env[key] = value;
+          }
+        }
+        return; // loaded
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
 
@@ -121,6 +151,9 @@ let _config: BridgeConfig | null = null;
  * Supports ${ENV_VAR} substitution in string values.
  */
 export function loadConfig(configPath?: string): BridgeConfig {
+  // Load .env file first so env vars are available for substitution
+  loadEnvFile();
+
   const resolvedPath = configPath ?? resolveDefaultConfigPath();
 
   let raw: unknown = {};
@@ -145,10 +178,22 @@ export function loadConfig(configPath?: string): BridgeConfig {
     }
     console.error("Using default configuration.");
     _config = { ...DEFAULT_CONFIG };
-    return _config;
+  } else {
+    _config = result.data;
   }
 
-  _config = result.data;
+  // Fallback: if apiKey is still empty, try process.env directly
+  if (!_config.claude.apiKey) {
+    const envKey = process.env.CLAUDE_API_KEY ?? "";
+    if (envKey) {
+      _config = {
+        ..._config,
+        claude: { ..._config.claude, apiKey: envKey },
+      };
+      console.error("Loaded CLAUDE_API_KEY from environment.");
+    }
+  }
+
   return _config;
 }
 

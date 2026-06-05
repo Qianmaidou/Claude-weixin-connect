@@ -102,6 +102,11 @@ async function cmdStart(accountId?: string): Promise<void> {
   console.log(`=== Claude Weixin Connect — 启动中 ===`);
   console.log(`   Account: ${account.accountId}`);
   console.log(`   API URL: ${account.baseUrl}`);
+  console.log(`   Model:   ${getConfig().claude.model}`);
+  console.log(``);
+  console.log(`   Bot 正在监听微信消息...`);
+  console.log(`   现在去微信里给 Bot 发一条消息吧！`);
+  console.log(``);
 
   // Configure the API layer
   setApiBotAgent(getConfig().weixin.botAgent);

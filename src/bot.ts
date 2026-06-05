@@ -433,6 +433,7 @@ async function processMessage(
   }
 
   logger.info(`${LOG_PREFIX} processing message from ${fromUserId}: "${text.slice(0, 80)}"`);
+  console.log(`[bot] 💬 ${fromUserId}: ${text.slice(0, 50)}`);
 
   // Save context token for future replies
   if (msg.context_token) {
@@ -601,6 +602,8 @@ export async function startBot(account: StoredAccount): Promise<void> {
   let consecutiveFailures = 0;
 
   logger.info(`${LOG_PREFIX} starting long-poll loop for ${account.accountId}`);
+  console.log(`[bot] ✅ 长轮询已启动，等待新消息...`);
+  console.log(`[bot] 按 Ctrl+C 停止`);
 
   while (state.running) {
     try {
@@ -650,6 +653,7 @@ export async function startBot(account: StoredAccount): Promise<void> {
       // Process messages
       if (resp.msgs && resp.msgs.length > 0) {
         logger.info(`${LOG_PREFIX} received ${resp.msgs.length} message(s)`);
+        console.log(`\n[bot] 📩 收到 ${resp.msgs.length} 条消息`);
         for (const msg of resp.msgs) {
           if (!state.running) break;
           try {
