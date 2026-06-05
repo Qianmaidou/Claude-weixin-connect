@@ -1,0 +1,29 @@
+{
+  "name": "claude-weixin-connect",
+  "version": "0.1.0",
+  "description": "Standalone Claude-to-WeChat bridge based on WeChat iLink bot protocol",
+  "license": "MIT",
+  "author": "Qianmaidou",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "qrcode-terminal": "^0.12.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "silk-wasm": "^3.7.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  }
+}
