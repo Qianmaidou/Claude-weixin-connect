@@ -344,3 +344,50 @@
 - 新建：`src/vendor.d.ts`
 
 **提交：** `feat: adapt QR code login flow to our storage layer`
+
+---
+
+### Step 10-12: Claude API 封装 + CLI + Bot 主循环（MVP）✅ (2026-06-05)
+
+**做了什么：** 实现核心桥接逻辑——三个文件共同构成最小可行产品。
+
+1. **`src/claude.ts`** — Claude API 流式封装
+   - `streamClaudeResponse()` — 流式 async generator，产出 text_delta
+   - `claudeComplete()` — 简单非流式调用（用于 slash 命令等）
+   - 指数退避重试（最多 3 次）：429/5xx/网络错误可重试，401/403/400 立即抛错
+   - 使用 `@anthropic-ai/sdk` 的 `client.messages.stream()`
+
+2. **`src/index.ts`** — CLI 入口
+   - 命令：`login`, `start`, `accounts`, `logout`, `status`
+   - `login` — QR 码扫码登录流程
+   - `start [--account <id>]` — 启动 bot（默认第一个账号）
+   - `accounts` — 列出已登录账号
+   - `logout --account <id>` — 移除账号
+   - `status` — 显示运行状态
+   - 启动时配置 API 层（bot_agent, routeTag, logDir）
+
+3. **`src/bot.ts`** — 主循环（核心 ~350 行）
+   - **长轮询循环：** getUpdates(cursor) → 处理消息 → 保存 cursor → 循环
+   - **消息处理管线：**
+     1. 提取文本（`extractText`）
+     2. 授权检查（`allowedUsers` 白名单）
+     3. 保存 context_token
+     4. 加载对话历史 → 追加用户消息
+     5. 流式调用 Claude → `StreamingMarkdownFilter` 过滤
+     6. 200 字符 / 3s 空闲合并块 → sendMessage（GENERATING）
+     7. 最后一块 → flush + FINISH
+     8. 保存 Claude 回复 → 裁剪对话历史
+   - **Typing Indicator：** setInterval 5s 保活，结束时发送 CANCEL
+   - **会话守卫：** errcode -14 → 暂停 1 小时
+   - **错误处理：** 连续 3 次失败 → 退避 30s
+   - **优雅关闭：** SIGINT/SIGTERM → notifyStop → 保存 sync buffer
+   - **System Prompt：** 从文件加载或使用内置默认值
+
+**验证：** `npx tsc --noEmit` + `npx vitest run` 23 tests passed
+
+**文件变更：**
+- 新建：`src/claude.ts`
+- 新建：`src/index.ts`
+- 新建：`src/bot.ts`
+
+**提交：** `feat: Claude API wrapper, CLI, and bot main loop (MVP)`
