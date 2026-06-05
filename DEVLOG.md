@@ -80,3 +80,24 @@
 - 新建：`src/weixin/util/logger.ts`
 
 **提交：** `chore: extract utility functions (random, redact, logger)`
+
+---
+
+### Step 3: 提取 AES 加密 ✅ (2026-06-05)
+
+**做了什么：**
+- 从 openclaw-weixin 原样提取 `src/cdn/aes-ecb.ts` → `src/weixin/cdn/aes-ecb.ts`
+- 零依赖，纯 Node.js crypto 实现：
+  - `encryptAesEcb(plaintext, key)` — AES-128-ECB 加密（PKCS7 填充）
+  - `decryptAesEcb(ciphertext, key)` — AES-128-ECB 解密
+  - `aesEcbPaddedSize(plaintextSize)` — 计算 PKCS7 填充后大小
+
+**验证：**
+- `npx tsc --noEmit` 通过
+- `npx vitest run` 3 个测试通过（加解密往返、大块数据、填充大小计算）
+
+**文件变更：**
+- 新建：`src/weixin/cdn/aes-ecb.ts`
+- 新建：`src/weixin/cdn/aes-ecb.test.ts`
+
+**提交：** `chore: extract AES-128-ECB encryption for CDN media`
