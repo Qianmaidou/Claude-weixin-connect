@@ -438,8 +438,13 @@ async function processMessage(
   }
 
   const text = extractText(msg);
-  if (!text) {
-    logger.debug(`${LOG_PREFIX} empty text message from ${fromUserId}, skipping`);
+
+  // Check if there are image items
+  const imageItems = msg.item_list?.filter((item) => item.type === MessageItemType.IMAGE) ?? [];
+
+  // Skip only if there's no text AND no images
+  if (!text && imageItems.length === 0) {
+    logger.debug(`${LOG_PREFIX} empty message from ${fromUserId}, skipping`);
     return;
   }
 
@@ -460,7 +465,6 @@ async function processMessage(
   let conversation = loadConversation(account.accountId, fromUserId);
 
   // Download inbound images if present
-  const imageItems = msg.item_list?.filter((item) => item.type === MessageItemType.IMAGE) ?? [];
   console.log(`[bot] 🖼️ 检测到 ${imageItems.length} 张图片`);
   const images: { base64: string; mediaType: string }[] = [];
   for (const item of imageItems) {
