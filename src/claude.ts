@@ -90,6 +90,28 @@ async function* streamOpenAI(
     baseURL: actualBaseURL,
   });
 
+  // DeepSeek API doesn't support image_url content blocks (text only).
+  // Strip image blocks and replace with a text note to avoid 400 errors.
+  const hasImages = messages.some(
+    (m) => Array.isArray(m.content) && m.content.some((b) => (b as { type: string }).type === "image"),
+  );
+  if (hasImages) {
+    console.log("[AI] ⚠️ DeepSeek 不支持图片，转换为文字提示");
+    messages = messages.map((m) => {
+      if (Array.isArray(m.content)) {
+        const contentArr = m.content as { type: string; text?: string }[];
+        const textBlocks = contentArr.filter((b) => b.type === "text");
+        const imageCount = contentArr.filter((b) => b.type === "image").length;
+        const text = textBlocks.map((b) => b.text ?? "").join("\n");
+        return {
+          role: m.role,
+          content: text || `[用户发送了 ${imageCount} 张图片，当前模型不支持图片识别]`,
+        };
+      }
+      return m;
+    });
+  }
+
   // Convert Anthropic-format messages to OpenAI format
   const openaiMessages = messages.map((m) => {
     const content = convertContentToOpenAI(m.content);
