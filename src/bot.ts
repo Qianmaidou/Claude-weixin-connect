@@ -260,6 +260,7 @@ async function streamReply(
       }
     } catch (err) {
       logger.error(`${LOG_PREFIX} streamReply send failed: ${String(err)}`);
+      console.error(`[bot] ⚠️ 发送消息失败: ${String(err)}`);
     }
   };
 
@@ -509,7 +510,12 @@ async function processMessage(
       userModelPrefs.get(fromUserId),
     );
   } catch (err) {
-    logger.error(`${LOG_PREFIX} Claude stream failed for ${fromUserId}: ${String(err)}`);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logger.error(`${LOG_PREFIX} AI stream failed for ${fromUserId}: ${errMsg}`);
+    console.error(`\n[bot] ❌ AI 调用失败: ${errMsg}`);
+    if (err instanceof Error && err.stack) {
+      console.error(err.stack.split("\n").slice(0, 3).join("\n"));
+    }
     try {
       await sendMessageWeixin({
         to: fromUserId,

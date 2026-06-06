@@ -184,18 +184,26 @@ export async function* streamClaudeResponse(
       return; // Success
     } catch (err) {
       lastError = err;
-      if (!isRetryableError(err)) throw err;
+      if (!isRetryableError(err)) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[AI] ❌ 非可重试错误: ${msg}`);
+        if (err instanceof Error && err.stack) {
+          console.error(err.stack.split("\n").slice(0, 4).join("\n"));
+        }
+        throw err;
+      }
 
       if (attempt < MAX_RETRIES) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(
-          `AI API attempt ${attempt}/${MAX_RETRIES} failed (retrying in ${delayMs}ms): ${msg}`,
+          `[AI] ⚠️ 第 ${attempt}/${MAX_RETRIES} 次尝试失败 (${delayMs}ms 后重试): ${msg}`,
         );
         await new Promise((r) => setTimeout(r, delayMs));
         delayMs *= 2;
       }
     }
   }
+  console.error(`[AI] ❌ ${MAX_RETRIES} 次重试全部失败`);
   throw lastError;
 }
 
