@@ -82,9 +82,12 @@ async function* streamOpenAI(
   cfg: AIConfig,
   messages: ClaudeMessage[],
 ): AsyncGenerator<string> {
+  const actualBaseURL = cfg.baseURL || "https://api.openai.com/v1";
+  console.log(`[AI] 🔗 调用 DeepSeek API: baseURL=${actualBaseURL}, model=${cfg.model}, key=${cfg.apiKey.slice(0, 8)}...`);
+
   const client = new OpenAI({
     apiKey: cfg.apiKey,
-    baseURL: cfg.baseURL || undefined,
+    baseURL: actualBaseURL,
   });
 
   // Convert Anthropic-format messages to OpenAI format
