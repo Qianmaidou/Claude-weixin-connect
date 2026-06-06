@@ -107,9 +107,23 @@ async function* streamOpenAI(
     stream: true,
   });
 
-  for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) yield delta;
+  console.log(`[AI] 📡 流式响应开始...`);
+  let chunkCount = 0;
+  let contentChars = 0;
+  try {
+    for await (const chunk of stream) {
+      chunkCount++;
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        contentChars += delta.length;
+        if (chunkCount <= 3) console.log(`[AI] 📝 chunk #${chunkCount}: "${delta.slice(0, 60)}"`);
+        yield delta;
+      }
+    }
+    console.log(`[AI] ✅ 流式完成: ${chunkCount} chunks, ${contentChars} chars`);
+  } catch (err) {
+    console.error(`[AI] ❌ 流式中断 (chunk ${chunkCount}): ${err instanceof Error ? err.message : String(err)}`);
+    throw err;
   }
 }
 
