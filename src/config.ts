@@ -132,9 +132,10 @@ export const DEFAULT_CONFIG: BridgeConfig = {
  * Unknown vars are replaced with empty string.
  */
 function resolveEnvVars(value: string): string {
-  return value.replace(/\$\{(\w+)\}/g, (_, name: string) => {
-    return process.env[name] ?? "";
-  });
+  // Support both ${VAR} and $VAR formats
+  return value
+    .replace(/\$\{(\w+)\}/g, (_, name: string) => process.env[name] ?? "")
+    .replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name: string) => process.env[name] ?? "");
 }
 
 /** Deep-resolve env vars in all string values of an object. */
