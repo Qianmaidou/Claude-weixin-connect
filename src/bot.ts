@@ -70,6 +70,8 @@ async function downloadInboundImage(
   if (!img?.media) return null;
 
   try {
+    console.log(`[bot] 🖼️ image_item: aeskey=${img.aeskey?.slice(0, 20) ?? "none"}, media.aes_key=${img.media.aes_key?.slice(0, 20) ?? "none"}, encrypt_param=${img.media.encrypt_query_param?.slice(0, 30) ?? "none"}, full_url=${img.media.full_url?.slice(0, 60) ?? "none"}`);
+
     const aesKeyBase64 = img.aeskey
       ? Buffer.from(img.aeskey, "hex").toString("base64")
       : img.media.aes_key;
@@ -459,10 +461,17 @@ async function processMessage(
 
   // Download inbound images if present
   const imageItems = msg.item_list?.filter((item) => item.type === MessageItemType.IMAGE) ?? [];
+  console.log(`[bot] 🖼️ 检测到 ${imageItems.length} 张图片`);
   const images: { base64: string; mediaType: string }[] = [];
   for (const item of imageItems) {
+    console.log(`[bot] 📥 开始下载图片...`);
     const img = await downloadInboundImage(item, account.cdnBaseUrl);
-    if (img) images.push(img);
+    if (img) {
+      console.log(`[bot] ✅ 图片下载成功: ${img.base64.length} bytes base64`);
+      images.push(img);
+    } else {
+      console.log(`[bot] ❌ 图片下载失败`);
+    }
   }
 
   // Build Claude messages: convert ConversationEntry[] → ClaudeMessage[]
