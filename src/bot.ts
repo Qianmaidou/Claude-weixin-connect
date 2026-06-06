@@ -278,6 +278,7 @@ async function streamReply(
       model,
     });
 
+    console.log(`[bot] 📡 开始接收 AI 流式回复...`);
     for await (const delta of stream) {
       fullResponse += delta;
       buffer += delta;
@@ -287,6 +288,7 @@ async function streamReply(
         await flushBuffer(false);
       }
     }
+    console.log(`[bot] 📡 流式结束: fullResponse=${fullResponse.length} chars, buffer=${buffer.length} chars`);
 
     // Final flush
     if (buffer) {
