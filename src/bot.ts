@@ -290,9 +290,13 @@ async function streamReply(
     }
     console.log(`[bot] 📡 流式结束: fullResponse=${fullResponse.length} chars, buffer=${buffer.length} chars`);
 
-    // Final flush
+    // Final flush — feed remaining buffer through filter, then flush held-back chars
     if (buffer) {
-      const final = filter.flush();
+      const fed = filter.feed(buffer);
+      buffer = "";
+      const remaining = filter.flush();
+      const final = fed + remaining;
+      console.log(`[bot] 📤 最终发送: fed=${fed.length} + remaining=${remaining.length} = ${final.length} chars`);
       if (final) {
         try {
           await sendMessageWeixin({
@@ -304,8 +308,10 @@ async function streamReply(
               contextToken,
             },
           });
+          console.log(`[bot] ✅ 回复已发送`);
         } catch (err) {
           logger.error(`${LOG_PREFIX} final flush failed: ${String(err)}`);
+          console.error(`[bot] ❌ 最终发送失败: ${String(err)}`);
         }
       }
     }
