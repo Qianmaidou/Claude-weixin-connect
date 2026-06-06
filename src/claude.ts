@@ -1,9 +1,11 @@
 /**
- * Claude API streaming wrapper — thin layer over @anthropic-ai/sdk.
+ * Unified AI streaming wrapper — supports both Anthropic Claude and
+ * OpenAI-compatible APIs (DeepSeek, OpenAI, etc.).
  */
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { getConfig } from "./config.js";
-import type { ConversationEntry } from "./storage.js";
+import type { AIConfig } from "./config.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,145 +17,230 @@ export interface ClaudeMessage {
   content: string | Anthropic.Messages.ContentBlockParam[];
 }
 
-export interface ClaudeStreamOpts {
-  /** System prompt (placed in the system parameter, not as a user message). */
-  systemPrompt: string;
-  /** Conversation history with optional image content blocks. */
-  messages: ClaudeMessage[];
-  /** Override the model from config (e.g. per-user setting). */
-  model?: string;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getAIConfig(): AIConfig {
+  return getConfig().ai;
 }
-
-// ---------------------------------------------------------------------------
-// Client
-// ---------------------------------------------------------------------------
-
-let _client: Anthropic | null = null;
-
-function getClient(): Anthropic {
-  if (!_client) {
-    const cfg = getConfig();
-    if (!cfg.claude.apiKey) {
-      throw new Error(
-        "Claude API key not configured. Set CLAUDE_API_KEY environment variable or claude.apiKey in config.json",
-      );
-    }
-    _client = new Anthropic({ apiKey: cfg.claude.apiKey });
-  }
-  return _client;
-}
-
-/** Reset the client (e.g. after config changes). */
-export function resetClaudeClient(): void {
-  _client = null;
-}
-
-// ---------------------------------------------------------------------------
-// Streaming response generator
-// ---------------------------------------------------------------------------
 
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 1000;
 
-/**
- * Check if an error is retryable (rate limits, server errors, network issues).
- * Non-retryable: auth errors (401, 403), bad requests (400), content policy violations.
- */
 function isRetryableError(err: unknown): boolean {
   if (err instanceof Anthropic.APIError) {
-    // 429 rate limit, 5xx server errors are retryable
     if (err.status === 429) return true;
     if (err.status && err.status >= 500) return true;
-    // 400-level errors except 429 are NOT retryable
     return false;
   }
-  // Network errors (fetch failures, timeouts) are retryable
-  return true;
+  if (err instanceof OpenAI.APIError) {
+    if (err.status === 429) return true;
+    if (err.status && err.status >= 500) return true;
+    return false;
+  }
+  return true; // network errors
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic streaming
+// ---------------------------------------------------------------------------
+
+async function* streamAnthropic(
+  cfg: AIConfig,
+  messages: ClaudeMessage[],
+): AsyncGenerator<string> {
+  const client = new Anthropic({ apiKey: cfg.apiKey });
+
+  const anthropicMessages: Anthropic.MessageParam[] = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  const stream = client.messages.stream({
+    model: cfg.model,
+    max_tokens: cfg.maxTokens,
+    temperature: cfg.temperature,
+    messages: anthropicMessages,
+  });
+
+  for await (const event of stream) {
+    if (
+      event.type === "content_block_delta" &&
+      event.delta.type === "text_delta"
+    ) {
+      yield event.delta.text;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible streaming (DeepSeek, OpenAI, etc.)
+// ---------------------------------------------------------------------------
+
+async function* streamOpenAI(
+  cfg: AIConfig,
+  messages: ClaudeMessage[],
+): AsyncGenerator<string> {
+  const client = new OpenAI({
+    apiKey: cfg.apiKey,
+    baseURL: cfg.baseURL || undefined,
+  });
+
+  // Convert Anthropic-format messages to OpenAI format
+  const openaiMessages = messages.map((m) => {
+    const content = convertContentToOpenAI(m.content);
+    if (m.role === "assistant") {
+      return { role: "assistant" as const, content: content as string };
+    }
+    return { role: "user" as const, content };
+  });
+
+  const stream = await client.chat.completions.create({
+    model: cfg.model,
+    max_tokens: cfg.maxTokens,
+    temperature: cfg.temperature,
+    messages: openaiMessages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    stream: true,
+  });
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (delta) yield delta;
+  }
 }
 
 /**
- * Stream a Claude response as an async generator of text delta strings.
- *
- * On transient errors (rate limits, 5xx, network), retries up to MAX_RETRIES
- * times with exponential backoff. Non-retryable errors (401, 403, 400) throw
- * immediately.
+ * Convert Anthropic-format content to OpenAI format.
+ * Anthropic: string | [{type:"text", text},{type:"image", source:{type:"base64",...}}]
+ * OpenAI:   string | [{type:"text", text},{type:"image_url", image_url:{url:"data:..."}}]
+ */
+function convertContentToOpenAI(
+  content: string | Anthropic.Messages.ContentBlockParam[],
+): string | OpenAI.Chat.Completions.ChatCompletionContentPart[] {
+  if (typeof content === "string") return content;
+
+  return content
+    .map((block): OpenAI.Chat.Completions.ChatCompletionContentPart | null => {
+      if (block.type === "text" && "text" in block) {
+        return { type: "text", text: block.text };
+      }
+      if (block.type === "image" && "source" in block) {
+        const src = block.source as { type: string; media_type: string; data: string };
+        return {
+          type: "image_url",
+          image_url: {
+            url: `data:${src.media_type};base64,${src.data}`,
+          },
+        };
+      }
+      return null;
+    })
+    .filter(Boolean) as OpenAI.Chat.Completions.ChatCompletionContentPart[];
+}
+
+// ---------------------------------------------------------------------------
+// Unified streaming interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Stream an AI response as an async generator of text delta strings.
+ * Automatically selects Anthropic or OpenAI-compatible backend based on config.
  */
 export async function* streamClaudeResponse(
-  opts: ClaudeStreamOpts,
-): AsyncGenerator<string, void, unknown> {
-  const client = getClient();
-  const cfg = getConfig();
-  const model = opts.model ?? cfg.claude.model;
+  opts: {
+    systemPrompt: string;
+    messages: ClaudeMessage[];
+    model?: string;
+  },
+): AsyncGenerator<string> {
+  const cfg = { ...getAIConfig() };
+  if (opts.model) cfg.model = opts.model;
 
-  // Build the messages array for the Claude API
-  const messages: Anthropic.MessageParam[] = opts.messages.map((entry) => ({
-    role: entry.role,
-    content: entry.content,
-  }));
+  const provider = cfg.provider ?? "anthropic";
+
+  // Prepend system prompt as a user-style message for OpenAI (no system param in streaming generator)
+  let messages = opts.messages;
+  if (provider === "openai-compatible" && opts.systemPrompt) {
+    messages = [
+      { role: "user", content: opts.systemPrompt },
+      { role: "assistant", content: "好的，我会按照以上指示回复。" },
+      ...messages,
+    ];
+  }
 
   let lastError: unknown;
   let delayMs = INITIAL_RETRY_DELAY_MS;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const stream = client.messages.stream({
-        model,
-        max_tokens: cfg.claude.maxTokens,
-        temperature: cfg.claude.temperature,
-        system: opts.systemPrompt,
-        messages,
-      });
-
-      for await (const event of stream) {
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
-        ) {
-          yield event.delta.text;
-        }
+      if (provider === "openai-compatible") {
+        const stream = streamOpenAI(cfg, messages);
+        for await (const delta of stream) yield delta;
+      } else {
+        const stream = streamAnthropic(cfg, messages);
+        for await (const delta of stream) yield delta;
       }
       return; // Success
     } catch (err) {
       lastError = err;
-
-      if (!isRetryableError(err)) {
-        throw err; // Don't retry auth/bad request errors
-      }
+      if (!isRetryableError(err)) throw err;
 
       if (attempt < MAX_RETRIES) {
-        const msg =
-          err instanceof Error ? err.message : String(err);
+        const msg = err instanceof Error ? err.message : String(err);
         console.error(
-          `Claude API attempt ${attempt}/${MAX_RETRIES} failed (retrying in ${delayMs}ms): ${msg}`,
+          `AI API attempt ${attempt}/${MAX_RETRIES} failed (retrying in ${delayMs}ms): ${msg}`,
         );
         await new Promise((r) => setTimeout(r, delayMs));
-        delayMs *= 2; // Exponential backoff
+        delayMs *= 2;
       }
     }
   }
-
   throw lastError;
 }
 
 /**
- * Simple non-streaming call for quick completions (e.g. slash command responses).
+ * Simple non-streaming call (for slash commands).
  */
 export async function claudeComplete(
   systemPrompt: string,
   userMessage: string,
   opts?: { model?: string },
 ): Promise<string> {
-  const client = getClient();
-  const cfg = getConfig();
+  const cfg = getAIConfig();
+  const model = opts?.model ?? cfg.model;
 
+  if (cfg.provider === "openai-compatible") {
+    const client = new OpenAI({
+      apiKey: cfg.apiKey,
+      baseURL: cfg.baseURL || undefined,
+    });
+    const response = await client.chat.completions.create({
+      model,
+      max_tokens: cfg.maxTokens,
+      temperature: cfg.temperature,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+    });
+    return response.choices[0]?.message?.content ?? "";
+  }
+
+  // Anthropic
+  const client = new Anthropic({ apiKey: cfg.apiKey });
   const response = await client.messages.create({
-    model: opts?.model ?? cfg.claude.model,
-    max_tokens: cfg.claude.maxTokens,
-    temperature: cfg.claude.temperature,
+    model,
+    max_tokens: cfg.maxTokens,
+    temperature: cfg.temperature,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
   });
-
   const textBlock = response.content.find((b) => b.type === "text");
   return textBlock?.text ?? "";
+}
+
+/** Reset cached clients (e.g. after config changes). */
+export function resetClaudeClient(): void {
+  // No-op: clients are created per-request now since config can change
 }

@@ -365,7 +365,7 @@ async function handleSlashCommand(
     const conv = loadConversation(account.accountId, userId);
     const tokens = estimateTokens(conv);
     const cfg = getConfig();
-    const model = userModelPrefs.get(userId) ?? cfg.claude.model;
+    const model = userModelPrefs.get(userId) ?? cfg.ai.model;
     const statusMsg = [
       `📊 当前状态`,
       `模型: ${model}`,

@@ -36,12 +36,18 @@ function loadEnvFile(): void {
 // Schema
 // ---------------------------------------------------------------------------
 
-const ClaudeConfigSchema = z.object({
-  /** Anthropic API key. Supports ${ENV_VAR} substitution. */
+const AIProviderSchema = z.enum(["anthropic", "openai-compatible"]);
+
+const AIConfigSchema = z.object({
+  /** AI provider: "anthropic" (Claude) or "openai-compatible" (DeepSeek, OpenAI, etc.). */
+  provider: AIProviderSchema.default("anthropic"),
+  /** API key. Supports ${ENV_VAR} substitution. */
   apiKey: z.string().min(1),
-  /** Claude model ID (e.g. claude-sonnet-4-20250514). */
+  /** Model ID. Default depends on provider. */
   model: z.string().default("claude-sonnet-4-20250514"),
-  /** Maximum tokens in Claude response. */
+  /** Base URL for OpenAI-compatible providers (e.g. https://api.deepseek.com/v1). */
+  baseURL: z.string().optional(),
+  /** Maximum tokens in response. */
   maxTokens: z.number().int().positive().default(4096),
   /** Temperature (0-1). */
   temperature: z.number().min(0).max(1).default(0.7),
@@ -70,7 +76,9 @@ const ConversationConfigSchema = z.object({
 });
 
 export const BridgeConfigSchema = z.object({
-  claude: ClaudeConfigSchema,
+  /** AI provider config. Use "ai" or "claude" (deprecated alias). */
+  ai: AIConfigSchema.optional(),
+  claude: AIConfigSchema.optional(), // deprecated alias
   weixin: WeixinConfigSchema.default({}),
   conversation: ConversationConfigSchema.default({}),
   /** List of WeChat user IDs allowed to interact. Empty = allow all. */
@@ -79,8 +87,10 @@ export const BridgeConfigSchema = z.object({
   systemPromptFile: z.string().default("system-prompt.md"),
 });
 
-export type BridgeConfig = z.infer<typeof BridgeConfigSchema>;
-export type ClaudeConfig = z.infer<typeof ClaudeConfigSchema>;
+export type BridgeConfig = z.infer<typeof BridgeConfigSchema> & {
+  ai: AIConfig;
+};
+export type AIConfig = z.infer<typeof AIConfigSchema>;
 export type WeixinConfig = z.infer<typeof WeixinConfigSchema>;
 export type ConversationConfig = z.infer<typeof ConversationConfigSchema>;
 
@@ -89,8 +99,10 @@ export type ConversationConfig = z.infer<typeof ConversationConfigSchema>;
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_CONFIG: BridgeConfig = {
-  claude: {
+  ai: {
+    provider: "anthropic",
     apiKey: "",
+    baseURL: undefined,
     model: "claude-sonnet-4-20250514",
     maxTokens: 4096,
     temperature: 0.7,
@@ -179,19 +191,40 @@ export function loadConfig(configPath?: string): BridgeConfig {
     console.error("Using default configuration.");
     _config = { ...DEFAULT_CONFIG };
   } else {
-    _config = result.data;
+    _config = result.data as BridgeConfig;
+  }
+
+  // Resolve ai config: prefer "ai" key, fall back to "claude" alias
+  if (!_config.ai) {
+    _config.ai = (result.success && (result.data as Record<string, unknown>).claude)
+      ? (result.data as Record<string, unknown>).claude as AIConfig
+      : DEFAULT_CONFIG.ai;
   }
 
   // Fallback: if apiKey is still empty, try process.env directly
-  if (!_config.claude.apiKey) {
-    const envKey = process.env.CLAUDE_API_KEY ?? "";
+  if (!_config.ai.apiKey) {
+    const envKey = process.env.CLAUDE_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
     if (envKey) {
       _config = {
         ..._config,
-        claude: { ..._config.claude, apiKey: envKey },
+        ai: { ..._config.ai, apiKey: envKey },
       };
-      console.error("Loaded CLAUDE_API_KEY from environment.");
+      console.error("Loaded API key from environment.");
     }
+  }
+
+  // Auto-detect DeepSeek: if DEEPSEEK_API_KEY is set, default to openai-compatible
+  if (process.env.DEEPSEEK_API_KEY && _config.ai.provider === "anthropic" && _config.ai.apiKey === process.env.DEEPSEEK_API_KEY) {
+    _config = {
+      ..._config,
+      ai: {
+        ..._config.ai,
+        provider: "openai-compatible",
+        baseURL: _config.ai.baseURL ?? "https://api.deepseek.com/v1",
+        model: _config.ai.model === "claude-sonnet-4-20250514" ? "deepseek-chat" : _config.ai.model,
+      },
+    };
+    console.error("Auto-detected DeepSeek API key — using OpenAI-compatible mode.");
   }
 
   return _config;
